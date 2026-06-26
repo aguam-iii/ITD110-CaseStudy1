@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Portal - Clearance Approvals</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-content">
+            <h1>Department Staff Portal</h1>
+            <a href="index.html" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section-header">
+            <h2>Clearance Approvals</h2>
+        </div>
+
+        <div class="filters">
+            <select id="officeFilter" class="filter-select">
+                <option value="">Select Department</option>
+                <option value="Library">Library</option>
+                <option value="Laboratory">Laboratory</option>
+                <option value="Finance">Finance</option>
+                <option value="Health Center">Health Center</option>
+            </select>
+            <input type="text" id="searchBox" placeholder="Search by Student ID or Email" class="search-box">
+            <button class="btn btn-secondary" onclick="loadRequests()">Search</button>
+        </div>
+
+        <div id="requestsList" class="requests-list">
+            <p class="info-text">Select a department and click "Search" to view pending clearances</p>
+        </div>
+    </div>
+
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeApprovalModal()">&times;</span>
+            <h2>Process Clearance</h2>
+            <div id="approvalForm">
+                <div class="detail-info" id="studentInfo"></div>
+                <div class="form-group">
+                    <label for="statusSelect">Decision</label>
+                    <select id="statusSelect" required>
+                        <option value="">Select Decision</option>
+                        <option value="Cleared">Approve - Cleared</option>
+                        <option value="Hold">Hold - Pending Resolution</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="feedbackText">Feedback/Notes</label>
+                    <textarea id="feedbackText" placeholder="Enter any feedback or reason for hold (optional)"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="staffNameInput">Your Name</label>
+                    <input type="text" id="staffNameInput" placeholder="Enter your name" required>
+                </div>
+                <button class="btn btn-primary" onclick="submitApproval()">Submit Decision</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5001/api';
+        let currentRequestId = null;
+        let currentOffice = null;
+
+        async function loadRequests() {
+            const office = document.getElementById('officeFilter').value;
+            const search = document.getElementById('searchBox').value.trim();
+
+            if (!office) {
+                alert('Please select a department');
+                return;
+            }
+
+            currentOffice = office;
+
+            try {
+                if (search) {
+                    const response = await fetch(`${API_URL}/staff/search?query=${search}`);
+                    const request = await response.json();
+                    if (request._id) {
+                        displayRequest([request]);
+                    } else {
+                        document.getElementById('requestsList').innerHTML = '<p class="info-text">Student not found</p>';
+                    }
+                } else {
+                    const response = await fetch(`${API_URL}/staff/office/${office}`);
+                    const requests = await response.json();
+                    displayRequest(requests);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading requests');
+            }
+        }
+
+        function displayRequest(requests) {
+            const container = document.getElementById('requestsList');
+            
+            if (requests.length === 0) {
+                container.innerHTML = '<p class="info-text">No pending clearances for this department</p>';
+                return;
+            }
+
+            container.innerHTML = requests.map(req => {
+                const stage = req.clearanceHistory.find(s => s.office === currentOffice);
+                return `
+                    <div class="request-card">
+                        <div class="request-header">
+                            <div>
+                                <h3>${req.studentName}</h3>
+                                <p><strong>ID:</strong> ${req.studentId} | <strong>Document:</strong> ${req.documentType}</p>
+                            </div>
+                            <span class="status-badge status-${stage.status.toLowerCase()}">${stage.status}</span>
+                        </div>
+                        <p><strong>Course:</strong> ${req.studentCourse}</p>
+                        <p><strong>Email:</strong> ${req.studentEmail}</p>
+                        ${stage.feedback ? `<p><strong>Current Feedback:</strong> ${stage.feedback}</p>` : ''}
+                        <button class="btn btn-primary btn-small" onclick="openApprovalModal('${req._id}', '${req.studentName}', '${req.studentId}')">Process</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openApprovalModal(requestId, studentName, studentId) {
+            currentRequestId = requestId;
+            document.getElementById('studentInfo').innerHTML = `
+                <p><strong>Student:</strong> ${studentName}</p>
+                <p><strong>ID:</strong> ${studentId}</p>
+                <p><strong>Department:</strong> ${currentOffice}</p>
+            `;
+            document.getElementById('approvalModal').style.display = 'block';
+        }
+
+        function closeApprovalModal() {
+            document.getElementById('approvalModal').style.display = 'none';
+        }
+
+        async function submitApproval() {
+            const status = document.getElementById('statusSelect').value;
+            const feedback = document.getElementById('feedbackText').value;
+            const staffName = document.getElementById('staffNameInput').value;
+
+            if (!status || !staffName) {
+                alert('Please fill all required fields');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/staff/clearance/${currentRequestId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        office: currentOffice,
+                        status,
+                        feedback,
+                        staffName
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Clearance decision submitted!');
+                    closeApprovalModal();
+                    document.getElementById('statusSelect').value = '';
+                    document.getElementById('feedbackText').value = '';
+                    document.getElementById('staffNameInput').value = '';
+                    loadRequests();
+                } else {
+                    alert('Error submitting decision');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error submitting decision');
+            }
+        }
+
+        window.onclick = function(event) {
+            const modal = document.getElementById('approvalModal');
+            if (event.target === modal) {
+                closeApprovalModal();
+            }
+        };
+    </script>
+</body>
+</html>

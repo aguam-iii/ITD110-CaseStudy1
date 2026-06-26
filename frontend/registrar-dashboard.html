@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registrar Portal - Final Processing</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-content">
+            <h1>Registrar Portal</h1>
+            <a href="index.html" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section-header">
+            <h2>Document Processing & Dispatch</h2>
+        </div>
+
+        <div class="filters">
+            <select id="statusFilter" class="filter-select">
+                <option value="">All Status</option>
+                <option value="Fully Cleared">Fully Cleared</option>
+                <option value="Ready for Pickup">Ready for Pickup</option>
+                <option value="Dispatched">Dispatched</option>
+            </select>
+            <input type="text" id="searchBox" placeholder="Search by Student ID or Name" class="search-box">
+            <button class="btn btn-secondary" onclick="loadRequests()">Search</button>
+            <button class="btn btn-success" onclick="exportData()">📥 Export JSON</button>
+        </div>
+
+        <div id="requestsList" class="requests-list">
+            <p class="info-text">Loading requests...</p>
+        </div>
+    </div>
+
+    <!-- Dispatch Modal -->
+    <div id="dispatchModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDispatchModal()">&times;</span>
+            <h2>Setup Dispatch</h2>
+            <div id="dispatchForm">
+                <div class="detail-info" id="studentInfo"></div>
+                <div class="form-group">
+                    <label for="methodSelect">Dispatch Method</label>
+                    <select id="methodSelect" required>
+                        <option value="">Select Method</option>
+                        <option value="In-Person">In-Person Pickup</option>
+                        <option value="Courier">Courier Delivery</option>
+                        <option value="Email">Email</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="trackingInput">Tracking Number (if applicable)</label>
+                    <input type="text" id="trackingInput" placeholder="Enter courier tracking number">
+                </div>
+                <div class="form-group">
+                    <label for="notesInput">Processing Notes</label>
+                    <textarea id="notesInput" placeholder="Add any additional notes"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="submitDispatch()">Mark Ready for Pickup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Modal -->
+    <div id="statusModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeStatusModal()">&times;</span>
+            <div id="statusContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5001/api';
+        let currentRequestId = null;
+
+        async function loadRequests() {
+            const status = document.getElementById('statusFilter').value;
+            const search = document.getElementById('searchBox').value.trim();
+
+            try {
+                let url = `${API_URL}/registrar/all`;
+                if (status) url += `?globalStatus=${status}`;
+                if (search) url += (status ? '&' : '?') + `search=${search}`;
+
+                const response = await fetch(url);
+                const requests = await response.json();
+                displayRequests(requests);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading requests');
+            }
+        }
+
+        function displayRequests(requests) {
+            const container = document.getElementById('requestsList');
+            
+            if (requests.length === 0) {
+                container.innerHTML = '<p class="info-text">No requests found</p>';
+                return;
+            }
+
+            container.innerHTML = requests.map(req => `
+                <div class="request-card">
+                    <div class="request-header">
+                        <div>
+                            <h3>${req.studentName}</h3>
+                            <p><strong>ID:</strong> ${req.studentId} | <strong>Document:</strong> ${req.documentType}</p>
+                        </div>
+                        <span class="status-badge status-${req.globalStatus.toLowerCase()}">${req.globalStatus}</span>
+                    </div>
+                    <p><strong>Course:</strong> ${req.studentCourse} | <strong>Email:</strong> ${req.studentEmail}</p>
+                    <p><strong>Requested:</strong> ${new Date(req.createdAt).toLocaleDateString()}</p>
+                    <div class="action-buttons">
+                        ${req.globalStatus === 'Fully Cleared' ? `
+                            <button class="btn btn-primary btn-small" onclick="openDispatchModal('${req._id}', '${req.studentName}', '${req.studentId}')">Approve Request</button>
+                        ` : ''}
+                        ${req.globalStatus === 'Ready for Pickup' ? `
+                            <button class="btn btn-success btn-small" onclick="markDispatched('${req._id}')">Document Ready</button>
+                        ` : ''}
+                        <button class="btn btn-secondary btn-small" onclick="viewFullDetails('${req._id}')">View Details</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openDispatchModal(requestId, studentName, studentId) {
+            currentRequestId = requestId;
+            document.getElementById('studentInfo').innerHTML = `
+                <p><strong>Student:</strong> ${studentName}</p>
+                <p><strong>ID:</strong> ${studentId}</p>
+            `;
+            document.getElementById('dispatchModal').style.display = 'block';
+        }
+
+        function closeDispatchModal() {
+            document.getElementById('dispatchModal').style.display = 'none';
+        }
+
+        function closeStatusModal() {
+            document.getElementById('statusModal').style.display = 'none';
+        }
+
+        async function submitDispatch() {
+            const method = document.getElementById('methodSelect').value;
+            const trackingNumber = document.getElementById('trackingInput').value;
+            const registrarNotes = document.getElementById('notesInput').value;
+
+            if (!method) {
+                alert('Please select a dispatch method');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/registrar/dispatch/${currentRequestId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        method,
+                        trackingNumber: trackingNumber || null,
+                        registrarNotes
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Dispatch information saved!');
+                    closeDispatchModal();
+                    document.getElementById('methodSelect').value = '';
+                    document.getElementById('trackingInput').value = '';
+                    document.getElementById('notesInput').value = '';
+                    loadRequests();
+                } else {
+                    alert('Error saving dispatch information');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error saving dispatch information');
+            }
+        }
+
+        async function markDispatched(requestId) {
+            if (!confirm('Mark this document as dispatched?')) return;
+
+            try {
+                const response = await fetch(`${API_URL}/registrar/mark-dispatched/${requestId}`, {
+                    method: 'PUT'
+                });
+
+                if (response.ok) {
+                    alert('Document marked as dispatched!');
+                    loadRequests();
+                } else {
+                    alert('Error updating status');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error updating status');
+            }
+        }
+
+        async function viewFullDetails(requestId) {
+            try {
+                const response = await fetch(`${API_URL}/documents/${requestId}`);
+                const request = await response.json();
+
+                let html = `
+                    <h2>Request Details</h2>
+                    <div class="detail-info">
+                        <p><strong>Student:</strong> ${request.studentName} (${request.studentId})</p>
+                        <p><strong>Email:</strong> ${request.studentEmail}</p>
+                        <p><strong>Course:</strong> ${request.studentCourse}</p>
+                        <p><strong>Document Type:</strong> ${request.documentType}</p>
+                        <p><strong>Global Status:</strong> <span class="status-badge status-${request.globalStatus.toLowerCase()}">${request.globalStatus}</span></p>
+                        <p><strong>Requested:</strong> ${new Date(request.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <h3>Clearance History</h3>
+                    <div class="clearance-details">
+                `;
+
+                request.clearanceHistory.forEach(stage => {
+                    html += `
+                        <div class="clearance-item">
+                            <h4>${stage.office}</h4>
+                            <p><strong>Status:</strong> ${stage.status}</p>
+                            ${stage.feedback ? `<p><strong>Feedback:</strong> ${stage.feedback}</p>` : ''}
+                            ${stage.staffName ? `<p><strong>Processed by:</strong> ${stage.staffName}</p>` : ''}
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+
+                if (request.dispatchCoordinates && request.dispatchCoordinates.method) {
+                    html += `
+                        <h3>Dispatch Information</h3>
+                        <div class="dispatch-info">
+                            <p><strong>Method:</strong> ${request.dispatchCoordinates.method}</p>
+                            <p><strong>Date:</strong> ${new Date(request.dispatchCoordinates.date).toLocaleDateString()}</p>
+                            ${request.dispatchCoordinates.trackingNumber ? `<p><strong>Tracking:</strong> ${request.dispatchCoordinates.trackingNumber}</p>` : ''}
+                        </div>
+                    `;
+                }
+
+                if (request.registrarNotes) {
+                    html += `<p><strong>Registrar Notes:</strong> ${request.registrarNotes}</p>`;
+                }
+
+                document.getElementById('statusContent').innerHTML = html;
+                document.getElementById('statusModal').style.display = 'block';
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading details');
+            }
+        }
+
+        async function exportData() {
+            try {
+                const response = await fetch(`${API_URL}/documents/export`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `requests-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error exporting data');
+            }
+        }
+
+        window.onclick = function(event) {
+            let modal = document.getElementById('dispatchModal');
+            if (event.target === modal) closeDispatchModal();
+            
+            modal = document.getElementById('statusModal');
+            if (event.target === modal) closeStatusModal();
+        };
+
+        // Load on page load
+        loadRequests();
+    </script>
+</body>
+</html>

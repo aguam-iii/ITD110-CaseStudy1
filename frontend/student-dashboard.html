@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Portal - Document Tracker</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-content">
+            <h1>Student Portal</h1>
+            <a href="index.html" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section-header">
+            <h2>My Document Requests</h2>
+            <button class="btn btn-primary" onclick="openSubmitModal()">+ New Request</button>
+        </div>
+
+        <div class="filters">
+            <input type="text" id="studentIdInput" placeholder="Enter your Student ID" class="search-box">
+            <button class="btn btn-secondary" onclick="loadStudentRequests()">Load My Requests</button>
+        </div>
+
+        <div id="requestsList" class="requests-list">
+            <p class="info-text">Enter your Student ID and click "Load My Requests" to view your documents</p>
+        </div>
+    </div>
+
+    <!-- Submit Request Modal -->
+    <div id="submitModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSubmitModal()">&times;</span>
+            <h2>Submit New Request</h2>
+            <form id="requestForm">
+                <div class="form-group">
+                    <label for="studentIdField">Student ID</label>
+                    <input type="text" id="studentIdField" required>
+                </div>
+                <div class="form-group">
+                    <label for="studentNameField">Full Name</label>
+                    <input type="text" id="studentNameField" required>
+                </div>
+                <div class="form-group">
+                    <label for="studentEmailField">Email</label>
+                    <input type="email" id="studentEmailField" required>
+                </div>
+                <div class="form-group">
+                    <label for="studentCourseField">Course</label>
+                    <input type="text" id="studentCourseField" required>
+                </div>
+                <div class="form-group">
+                    <label for="documentTypeField">Document Type</label>
+                    <select id="documentTypeField" required>
+                        <option value="">Select Document</option>
+                        <option value="Transcript (TOR)">Transcript (TOR)</option>
+                        <option value="Certification">Certification</option>
+                        <option value="Diploma">Diploma</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Submit Request</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Request Detail Modal -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeDetailModal()">&times;</span>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5001/api';
+
+        // Load student requests
+        async function loadStudentRequests() {
+            const studentId = document.getElementById('studentIdInput').value.trim();
+            if (!studentId) {
+                alert('Please enter your Student ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/documents/student/${studentId}`);
+                const requests = await response.json();
+                displayRequests(requests);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading requests');
+            }
+        }
+
+        function displayRequests(requests) {
+            const container = document.getElementById('requestsList');
+            
+            if (requests.length === 0) {
+                container.innerHTML = '<p class="info-text">No requests yet. Click "New Request" to get started.</p>';
+                return;
+            }
+
+            container.innerHTML = requests.map(req => `
+                <div class="request-card">
+                    <div class="request-header">
+                        <h3>${req.documentType}</h3>
+                        <span class="status-badge status-${req.globalStatus.toLowerCase()}">${req.globalStatus}</span>
+                    </div>
+                    <p><strong>Request ID:</strong> ${req._id.substring(0, 8)}</p>
+                    <p><strong>Submitted:</strong> ${new Date(req.createdAt).toLocaleDateString()}</p>
+                    <div class="progress-bar">
+                        ${displayProgressBar(req.clearanceHistory)}
+                    </div>
+                    <button class="btn btn-secondary btn-small" onclick="viewDetails('${req._id}')">View Details</button>
+                </div>
+            `).join('');
+        }
+
+        function displayProgressBar(clearanceHistory) {
+            return clearanceHistory.map(stage => {
+                let statusClass = stage.status.toLowerCase();
+                return `
+                    <div class="progress-stage" title="${stage.office}: ${stage.status}">
+                        <span class="stage-name">${stage.office}</span>
+                        <span class="stage-icon status-${statusClass}">
+                            ${stage.status === 'Cleared' ? '✓' : stage.status === 'Hold' ? '⚠' : '○'}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function viewDetails(requestId) {
+            try {
+                const response = await fetch(`${API_URL}/documents/${requestId}`);
+                const request = await response.json();
+                
+                let html = `
+                    <h2>Request Details</h2>
+                    <div class="detail-info">
+                        <p><strong>Document Type:</strong> ${request.documentType}</p>
+                        <p><strong>Global Status:</strong> <span class="status-badge status-${request.globalStatus.toLowerCase()}">${request.globalStatus}</span></p>
+                        <p><strong>Submitted:</strong> ${new Date(request.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <h3>Clearance Progress</h3>
+                    <div class="clearance-details">
+                `;
+
+                request.clearanceHistory.forEach(stage => {
+                    html += `
+                        <div class="clearance-item">
+                            <h4>${stage.office}</h4>
+                            <p><strong>Status:</strong> ${stage.status}</p>
+                            ${stage.feedback ? `<p><strong>Feedback:</strong> ${stage.feedback}</p>` : ''}
+                            ${stage.staffName ? `<p><strong>Processed by:</strong> ${stage.staffName}</p>` : ''}
+                            ${stage.completedAt ? `<p><strong>Completed:</strong> ${new Date(stage.completedAt).toLocaleDateString()}</p>` : ''}
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+
+                if (request.globalStatus === 'Ready for Pickup' || request.globalStatus === 'Dispatched') {
+                    html += `
+                        <h3>Dispatch Information</h3>
+                        <div class="dispatch-info">
+                            <p><strong>Method:</strong> ${request.dispatchCoordinates.method}</p>
+                            ${request.dispatchCoordinates.trackingNumber ? `<p><strong>Tracking:</strong> ${request.dispatchCoordinates.trackingNumber}</p>` : ''}
+                        </div>
+                    `;
+                }
+
+                document.getElementById('detailContent').innerHTML = html;
+                document.getElementById('detailModal').style.display = 'block';
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading details');
+            }
+        }
+
+        // Submit form
+        document.getElementById('requestForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const requestData = {
+                studentId: document.getElementById('studentIdField').value,
+                studentName: document.getElementById('studentNameField').value,
+                studentEmail: document.getElementById('studentEmailField').value,
+                studentCourse: document.getElementById('studentCourseField').value,
+                documentType: document.getElementById('documentTypeField').value
+            };
+
+            try {
+                const response = await fetch(`${API_URL}/documents/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+
+                if (response.ok) {
+                    alert('Request submitted successfully!');
+                    document.getElementById('requestForm').reset();
+                    closeSubmitModal();
+                    document.getElementById('studentIdInput').value = requestData.studentId;
+                    loadStudentRequests();
+                } else {
+                    alert('Error submitting request');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error submitting request');
+            }
+        });
+
+        function openSubmitModal() {
+            document.getElementById('submitModal').style.display = 'block';
+        }
+
+        function closeSubmitModal() {
+            document.getElementById('submitModal').style.display = 'none';
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detailModal').style.display = 'none';
+        }
+
+        window.onclick = function(event) {
+            let modal = document.getElementById('submitModal');
+            if (event.target === modal) modal.style.display = 'none';
+            
+            modal = document.getElementById('detailModal');
+            if (event.target === modal) modal.style.display = 'none';
+        };
+    </script>
+</body>
+</html>

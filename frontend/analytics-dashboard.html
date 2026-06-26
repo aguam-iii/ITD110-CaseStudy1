@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-content">
+            <h1>Analytics Dashboard</h1>
+            <a href="index.html" class="btn btn-secondary">Back</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section-header">
+            <h2>System Statistics & Insights</h2>
+            <button class="btn btn-secondary" onclick="refreshStats()">Refresh</button>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Requests</h3>
+                <p class="stat-number" id="totalStat">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Pending</h3>
+                <p class="stat-number" id="pendingStat">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>In Progress</h3>
+                <p class="stat-number" id="inProgressStat">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Fully Cleared</h3>
+                <p class="stat-number" id="clearedStat">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Ready for Pickup</h3>
+                <p class="stat-number" id="readyStat">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Dispatched</h3>
+                <p class="stat-number" id="dispatchedStat">0</p>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3>Requests by Status</h3>
+                <canvas id="statusChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <h3>Requests by Document Type</h3>
+                <canvas id="documentChart"></canvas>
+            </div>
+            <div class="chart-container full-width">
+                <h3>Clearance Status by Office</h3>
+                <canvas id="officeChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Detailed Table -->
+        <div class="section-header">
+            <h2>All Requests</h2>
+        </div>
+
+        <div class="filters">
+            <select id="statusFilter" class="filter-select">
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Fully Cleared">Fully Cleared</option>
+                <option value="Ready for Pickup">Ready for Pickup</option>
+                <option value="Dispatched">Dispatched</option>
+            </select>
+            <input type="text" id="searchBox" placeholder="Search..." class="search-box">
+            <button class="btn btn-secondary" onclick="loadAllRequests()">Search</button>
+        </div>
+
+        <div class="table-responsive">
+            <table id="requestsTable">
+                <thead>
+                    <tr>
+                        <th>Student ID</th>
+                        <th>Name</th>
+                        <th>Document</th>
+                        <th>Status</th>
+                        <th>Submitted</th>
+                    </tr>
+                </thead>
+                <tbody id="requestsBody">
+                    <tr><td colspan="5" class="info-text">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5001/api';
+        let statusChart, documentChart, officeChart;
+
+        async function refreshStats() {
+            try {
+                const response = await fetch(`${API_URL}/registrar/stats`);
+                const data = await response.json();
+
+                // Update summary cards
+                document.getElementById('totalStat').textContent = data.summary.total;
+                document.getElementById('pendingStat').textContent = data.summary.pending;
+                document.getElementById('inProgressStat').textContent = data.summary.inProgress;
+                document.getElementById('clearedStat').textContent = data.summary.fullCleared;
+                document.getElementById('readyStat').textContent = data.summary.readyPickup;
+                document.getElementById('dispatchedStat').textContent = data.summary.dispatched;
+
+                // Update charts
+                updateCharts(data);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading statistics');
+            }
+        }
+
+        function updateCharts(data) {
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            const documentCtx = document.getElementById('documentChart').getContext('2d');
+            const officeCtx = document.getElementById('officeChart').getContext('2d');
+
+            // Status Chart
+            if (statusChart) statusChart.destroy();
+            statusChart = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Pending', 'In Progress', 'Fully Cleared', 'Ready for Pickup', 'Dispatched'],
+                    datasets: [{
+                        data: [
+                            data.summary.pending,
+                            data.summary.inProgress,
+                            data.summary.fullCleared,
+                            data.summary.readyPickup,
+                            data.summary.dispatched
+                        ],
+                        backgroundColor: [
+                            '#ff9999',
+                            '#ffcc99',
+                            '#ffff99',
+                            '#ccffcc',
+                            '#99ccff'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+
+            // Document Type Chart
+            if (documentChart) documentChart.destroy();
+            const docLabels = data.byDocument.map(d => d._id);
+            const docCounts = data.byDocument.map(d => d.count);
+            documentChart = new Chart(documentCtx, {
+                type: 'bar',
+                data: {
+                    labels: docLabels,
+                    datasets: [{
+                        label: 'Count',
+                        data: docCounts,
+                        backgroundColor: ['#66bb6a', '#42a5f5', '#ffa726']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // Office Chart
+            if (officeChart) officeChart.destroy();
+            const officeLabels = data.byOffice.map(o => o._id);
+            const pendingData = data.byOffice.map(o => o.pending);
+            const clearedData = data.byOffice.map(o => o.cleared);
+            const holdData = data.byOffice.map(o => o.hold);
+
+            officeChart = new Chart(officeCtx, {
+                type: 'bar',
+                data: {
+                    labels: officeLabels,
+                    datasets: [
+                        {
+                            label: 'Pending',
+                            data: pendingData,
+                            backgroundColor: '#ff9999'
+                        },
+                        {
+                            label: 'Cleared',
+                            data: clearedData,
+                            backgroundColor: '#99ff99'
+                        },
+                        {
+                            label: 'Hold',
+                            data: holdData,
+                            backgroundColor: '#ffcc99'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        x: { stacked: false },
+                        y: { stacked: false }
+                    }
+                }
+            });
+        }
+
+        async function loadAllRequests() {
+            try {
+                const status = document.getElementById('statusFilter').value;
+                const search = document.getElementById('searchBox').value.trim();
+
+                let url = `${API_URL}/documents/`;
+                const params = [];
+                if (status) params.push(`globalStatus=${status}`);
+                if (search) params.push(`search=${search}`);
+                if (params.length) url += '?' + params.join('&');
+
+                const response = await fetch(url);
+                const requests = await response.json();
+
+                const tbody = document.getElementById('requestsBody');
+                if (requests.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="info-text">No requests found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = requests.map(req => `
+                    <tr>
+                        <td>${req.studentId}</td>
+                        <td>${req.studentName}</td>
+                        <td>${req.documentType}</td>
+                        <td><span class="status-badge status-${req.globalStatus.toLowerCase()}">${req.globalStatus}</span></td>
+                        <td>${new Date(req.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error loading requests');
+            }
+        }
+
+        // Initial load
+        refreshStats();
+        loadAllRequests();
+
+        // Refresh every 30 seconds
+        setInterval(refreshStats, 30000);
+    </script>
+</body>
+</html>
